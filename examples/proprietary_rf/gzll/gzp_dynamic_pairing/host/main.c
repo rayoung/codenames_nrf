@@ -171,8 +171,6 @@ int main(void)
         {
             // Always grant a request
             gzp_id_req_grant();
-						NRF_LOG_INFO("Grant Host ID Request\r\n");
-            NRF_LOG_FLUSH();
         }
 
         length = NRF_GZLL_CONST_MAX_PAYLOAD_LENGTH;
@@ -191,6 +189,8 @@ int main(void)
             if (gzp_crypt_user_data_read(payload, (uint8_t *)&length))
             {
                 output_present(payload[0]);
+								NRF_LOG_INFO("%u\r\n", payload[0]);
+								NRF_LOG_FLUSH();
             }
         }
     }

@@ -68,6 +68,7 @@
  */
 #include "nrf_gzll.h"
 #include "nrf_gzp.h"
+#include "nrf_delay.h"
 #include "bsp.h"
 #include "app_error.h"
 #include "nrf_gzll_error.h"
@@ -134,10 +135,10 @@ static void ui_init(void)
 /*****************************************************************************/
 int main(void)
 {
-    bool             tx_success      = false;
-    bool             send_crypt_data = false;
-    gzp_id_req_res_t id_req_status   = GZP_ID_RESP_NO_REQUEST;
-
+    bool tx_success = false;
+    gzp_id_req_res_t id_req_status = GZP_ID_RESP_NO_REQUEST;
+		uint8_t disconnect_count = 0;
+	
     // Data and acknowledgement payloads
     uint8_t payload[NRF_GZLL_CONST_MAX_PAYLOAD_LENGTH]; ///< Payload to send to Host.
 
@@ -167,37 +168,63 @@ int main(void)
 
     for (;;)
     {
-        payload[0] = input_get();
+				/* not paired yet */
+				if (id_req_status != GZP_ID_RESP_GRANTED)
+				{
+            NRF_LOG_INFO("Scanning\n");
+            NRF_LOG_FLUSH();
 
-        // Send every other packet as encrypted data.
-        if (send_crypt_data)
-        {
-            // Send encrypted packet using the Gazell pairing library.
-            tx_success = gzp_crypt_data_send(payload, GZP_ENCRYPTED_USER_DATA_MAX_LENGTH);
-        }
-        else
-        {
-            nrf_gzp_reset_tx_complete();
-            nrf_gzp_reset_tx_success();
-
-            // Send packet as plain text.
-            if (nrf_gzll_add_packet_to_tx_fifo(UNENCRYPTED_DATA_PIPE,
-                                               payload,
-                                               GZP_MAX_FW_PAYLOAD_LENGTH))
+            // Send "system address request". Needed for sending any user data to the host.
+            if (gzp_address_req_send())
             {
-                while (!nrf_gzp_tx_complete())
-                {
-                    __WFI();
-                }
-                tx_success = nrf_gzp_tx_success();
+                // Send "Host ID request". Needed for sending encrypted user data to the host.
+                id_req_status = gzp_id_req_send();
             }
             else
             {
-                NRF_LOG_ERROR("TX fifo error \r\n");
-                NRF_LOG_FLUSH();
+                // System address request failed.
             }
-        }
-        send_crypt_data = !send_crypt_data;
+						
+						// If waiting for the host to grant or reject an ID request.
+						if (id_req_status == GZP_ID_RESP_PENDING)
+						{
+								// Send a new ID request for fetching response.
+								id_req_status = gzp_id_req_send();
+								if (id_req_status == GZP_ID_RESP_GRANTED)
+								{
+										NRF_LOG_INFO("Connected\n");
+										NRF_LOG_FLUSH();
+								}
+						}
+				}
+				else
+				{
+						payload[0] = input_get();
+
+						// Send encrypted packet using the Gazell pairing library.
+						tx_success = gzp_crypt_data_send(payload, GZP_ENCRYPTED_USER_DATA_MAX_LENGTH);
+					  
+						if (!tx_success)
+						{
+								disconnect_count++;
+							  if (disconnect_count >= 5)
+								{
+										id_req_status = GZP_ID_RESP_NO_REQUEST;
+										NRF_LOG_ERROR("Disconnected\n");
+										NRF_LOG_FLUSH();
+								}
+						}
+						else
+						{
+								disconnect_count = 0;
+						}
+						nrf_delay_ms(100);
+				}
+				/*
+        payload[0] = input_get();
+
+				// Send encrypted packet using the Gazell pairing library.
+        tx_success = gzp_crypt_data_send(payload, GZP_ENCRYPTED_USER_DATA_MAX_LENGTH);
 
         // Check if data transfer failed.
         if (!tx_success)
@@ -208,17 +235,11 @@ int main(void)
             // Send "system address request". Needed for sending any user data to the host.
             if (gzp_address_req_send())
             {
-								NRF_LOG_INFO("System Address Request Succeeded\r\n");
-                NRF_LOG_FLUSH();
                 // Send "Host ID request". Needed for sending encrypted user data to the host.
                 id_req_status = gzp_id_req_send();
-							  NRF_LOG_INFO("Host ID Request\r\n");
-                NRF_LOG_FLUSH();
             }
             else
             {
-								NRF_LOG_INFO("System Address Request Failed\r\n");
-                NRF_LOG_FLUSH();
                 // System address request failed.
             }
         }
@@ -229,6 +250,7 @@ int main(void)
             // Send a new ID request for fetching response.
             id_req_status = gzp_id_req_send();
         }
+				*/
     }
 }
 
